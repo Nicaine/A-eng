@@ -9,13 +9,11 @@ from mcp.server.fastmcp import FastMCP
 ROOT = (Path(__file__).parent / "data").resolve()
 ROOT.mkdir(parents=True, exist_ok=True)
 
-
-# Create the MCP server
 mcp = FastMCP("auth-eng-fs")
 
 # ----- Tools -----
 
-@mcp.tool
+@mcp.tool()
 def list_files(subpath: str = ".") -> list[str]:
     """
     List files and folders under the MCP root directory.
@@ -36,7 +34,7 @@ def list_files(subpath: str = ".") -> list[str]:
     ]
 
 
-@mcp.tool
+@mcp.tool()
 def read_file(path: str) -> str:
     """
     Read a text file from the MCP root.
@@ -49,7 +47,7 @@ def read_file(path: str) -> str:
     return full.read_text(encoding="utf-8")
 
 
-@mcp.tool
+@mcp.tool()
 def write_file(path: str, content: str) -> str:
     """
     Write a text file under the MCP root. Overwrites if it exists.
@@ -63,25 +61,4 @@ def write_file(path: str, content: str) -> str:
     return f"Saved {full.relative_to(ROOT)}"
 
 
-# ----- HTTP / MCP wiring -----
-
-# Get an ASGI app that speaks the Streamable HTTP MCP protocol
-mcp_app = mcp.http_app()
-
-# Wrap it in a FastAPI app so we can run it with uvicorn
-app = FastAPI()
-
-# Optional tiny health endpoint
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-
-# Mount MCP under /mcp
-app.mount("/mcp", mcp_app)
-
-
-if __name__ == "__main__":
-    import uvicorn
-
-    port = int(os.environ.get("PORT", "8000"))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+#
