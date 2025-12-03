@@ -1,19 +1,25 @@
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI
 from mcp.server.fastmcp import FastMCP
 
-# ---------- Filesystem root ----------
+# -------------------------------------------------
+# Filesystem root (inside the Render app directory)
+# -------------------------------------------------
+#
+# This is *ephemeral* storage (wiped on each deploy),
+# but totally fine for an MCP filesystem sandbox.
+#
 
-# Use a local "data" directory inside the app folder
 ROOT = (Path(__file__).parent / "data").resolve()
 ROOT.mkdir(parents=True, exist_ok=True)
 
-# ---------- MCP setup ----------
+# -------------------------------------------------
+# MCP server definition
+# -------------------------------------------------
 
-mcp = FastMCP("auth-eng-filesystem")
+mcp = FastMCP("auth-eng-fs")
 
 
 @mcp.tool()
@@ -21,24 +27,31 @@ def list_files(subpath: str = ".") -> list[str]:
     """
     List files and folders under the MCP root directory.
 
-    subpath is relative to the ROOT directory.
+    Arguments:
+    - subpath: path relative to the root directory.
     """
     base = (ROOT / subpath).resolve()
 
-    # Safety: don't allow escaping the root dir
+    # Safety: don't allow escaping the root directory
     if ROOT not in base.parents and base != ROOT:
         raise ValueError("Path is outside the allowed root directory")
 
     if not base.exists():
         return []
 
-    return [str(p.relative_to(ROOT)) for p in sorted(base.iterdir())]
+    return [
+        str(p.relative_to(ROOT))
+        for p in sorted(base.iterdir())
+    ]
 
 
 @mcp.tool()
 def read_file(path: str) -> str:
     """
-    Read a UTF-8 text file relative to the MCP root directory.
+    Read a UTF-8 text file from the MCP root directory.
+
+    Arguments:
+    - path: file path relative to the root directory.
     """
     full = (ROOT / path).resolve()
 
@@ -56,6 +69,10 @@ def write_file(path: str, content: str) -> str:
     """
     Write a UTF-8 text file under the MCP root directory.
     Overwrites the file if it already exists.
+
+    Arguments:
+    - path: file path relative to the root directory.
+    - content: text content to write.
     """
     full = (ROOT / path).resolve()
 
@@ -64,19 +81,22 @@ def write_file(path: str, content: str) -> str:
 
     full.parent.mkdir(parents=True, exist_ok=True)
     full.write_text(content, encoding="utf-8")
+
     return f"Saved {full.relative_to(ROOT)}"
 
 
-# ---------- FastAPI app ----------
+# -------------------------------------------------
+# FastAPI app + MCP SSE endpoint
+# -------------------------------------------------
 
-app = FastAPI()
+app = FastAPI(title="Auth-Eng Filesystem MCP")
 
 
 @app.get("/")
-async def health():
+async def status():
     """
-    Simple health check so you can hit https://a-eng.onrender.com
-    in the browser and confirm the server is alive.
+    Simple health-check so you can hit https://a-eng.onrender.com/
+    in a browser and see that the server is alive.
     """
     return {
         "status": "ok",
@@ -85,12 +105,9 @@ async def health():
     }
 
 
-@app.get("/sse")
-async def sse(request: Request):
-    """
-    SSE endpoint used by ChatGPT MCP connectors.
+# FastMCP exposes a FastAPI-compatible ASGI app that speaks
+# MCP over HTTP+SSE. We mount it at /sse, which is what the
+# ChatGPT connector will call.
+mcp_app = mcp.fastapi_app()  # <-- if logs say this attribute doesn't exist, tell me
 
-    ChatGPT will call this with the correct headers; in the browser you
-    may see an error JSON if you hit it directly, which is fine.
-    """
-    return await mcp.sse_handler(request)
+app.mount("/sse", mcp_app)
