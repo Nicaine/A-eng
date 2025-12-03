@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: mcp-filesystem
+    runtime: python
+    region: oregon
+    buildCommand: pip install -r requirements.txt
+    startCommand: python server.py
+    envVars:
+      ROOT: "/data"
+    disk:
+      name: storage
+      mountPath: /data
+      sizeGB: 1
