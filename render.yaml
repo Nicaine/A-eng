@@ -1,13 +1,7 @@
 services:
   - type: web
-    name: mcp-filesystem
-    runtime: python
-    region: oregon
+    name: auth-eng-mcp
+    env: python
+    root: .
     buildCommand: pip install -r requirements.txt
-    startCommand: python server.py
-    envVars:
-      ROOT: "/data"
-    disk:
-      name: storage
-      mountPath: /data
-      sizeGB: 1
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
