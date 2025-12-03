@@ -5,9 +5,10 @@ from fastapi import FastAPI
 from mcp.server.fastmcp import FastMCP
 
 # ----- Config -----
-# Root directory inside the Render container where files will live
-ROOT = Path(os.environ.get("FILES_ROOT", "/data")).resolve()
+# Use a local "data" folder inside the app directory (writable on Render free)
+ROOT = (Path(__file__).parent / "data").resolve()
 ROOT.mkdir(parents=True, exist_ok=True)
+
 
 # Create the MCP server
 mcp = FastMCP("auth-eng-fs")
