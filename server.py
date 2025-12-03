@@ -2,35 +2,57 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI
-from starlette.routing import Mount
-
+from fastapi.middleware.cors import CORSMiddleware
 from mcp.server.fastmcp import FastMCP
 
-# -------------------------------------------------
-# Config: where files are stored for this MCP server
-# -------------------------------------------------
-# On Render we just keep everything inside the app folder.
+# Writable directory inside Render
 ROOT = (Path(__file__).parent / "data").resolve()
 ROOT.mkdir(parents=True, exist_ok=True)
 
-# Create the MCP server instance
+# Create MCP instance
 mcp = FastMCP("auth-eng-fs")
 
+# FastAPI app
+app = FastAPI()
 
-# -------------------------------------------------
-# MCP tools
-# -------------------------------------------------
+# Allow Render proxy host headers
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 🔹 Health endpoint (GET /)
+@app.get("/")
+def health():
+    return {
+        "status": "ok",
+        "message": "MCP filesystem server is running",
+        "root_dir": str(ROOT),
+    }
+
+
+# 🔹 SSE endpoint required by ChatGPT MCP
+@app.get("/sse")
+async def sse(request):
+    """
+    Return the MCP SSE application
+    """
+    return await mcp.sse_app(request)
+
+
+# ---------------------------
+# MCP Tools
+# ---------------------------
+
 @mcp.tool()
 def list_files(subpath: str = ".") -> list[str]:
-    """
-    List files and folders under the MCP root directory.
-    Paths are always relative to ROOT (/data inside the app).
-    """
     base = (ROOT / subpath).resolve()
 
-    # Safety: don't allow escaping the root dir
     if ROOT not in base.parents and base != ROOT:
-        raise ValueError("Path is outside the allowed root directory")
+        raise ValueError("Path is outside the root directory")
 
     if not base.exists():
         return []
@@ -43,60 +65,24 @@ def list_files(subpath: str = ".") -> list[str]:
 
 @mcp.tool()
 def read_file(path: str) -> str:
-    """
-    Read a text file from the MCP root.
-    """
     full = (ROOT / path).resolve()
 
     if ROOT not in full.parents:
-        raise ValueError("Path is outside the allowed root directory")
-
-    if not full.is_file():
+        raise ValueError("Path is outside the root directory")
+    if not full.exists():
         raise FileNotFoundError(f"No such file: {path}")
 
-    return full.read_text(encoding="utf-8")
+    return full.read_text()
 
 
 @mcp.tool()
 def write_file(path: str, content: str) -> str:
-    """
-    Write a text file under the MCP root. Overwrites if it exists.
-    """
     full = (ROOT / path).resolve()
 
     if ROOT not in full.parents:
-        raise ValueError("Path is outside the allowed root directory")
+        raise ValueError("Path is outside the root directory")
 
     full.parent.mkdir(parents=True, exist_ok=True)
-    full.write_text(content, encoding="utf-8")
+    full.write_text(content)
 
     return f"Saved {full.relative_to(ROOT)}"
-
-
-# -------------------------------------------------
-# ASGI app for Render + MCP SSE endpoint
-# -------------------------------------------------
-# FastMCP gives us an ASGI sub-app that exposes:
-#   - /sse       (Server-Sent Events stream)
-#   - /messages  (HTTP POST for client -> server)
-sse_app = mcp.sse_app()
-
-# Main FastAPI app that Render runs with uvicorn
-app = FastAPI()
-
-
-@app.get("/")
-async def root():
-    # Simple health check so hitting the root URL in a browser shows *something*
-    return {
-        "status": "ok",
-        "message": "MCP filesystem server is running",
-        "root_dir": str(ROOT),
-    }
-
-
-# Mount the SSE MCP app at the root.
-# This means:
-#   - https://a-eng.onrender.com/sse       → SSE endpoint
-#   - https://a-eng.onrender.com/messages  → POST endpoint
-app.mount("/", sse_app)
