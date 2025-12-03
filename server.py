@@ -6,10 +6,13 @@ from starlette.routing import Mount, Route
 from starlette.responses import JSONResponse
 
 # ---------- CONFIG: root folder for your "filesystem" ----------
+
+# This will be something like /opt/render/project/src/data on Render
 ROOT = (Path(__file__).parent / "data").resolve()
 ROOT.mkdir(parents=True, exist_ok=True)
 
 # ---------- MCP SERVER ----------
+
 mcp = FastMCP("auth-eng-fs")
 
 # ---------- TOOLS ----------
@@ -66,11 +69,13 @@ def write_file(path: str, content: str) -> str:
     return f"Saved {full.relative_to(ROOT)}"
 
 
-# ---------- HTTP APP FOR RENDER ----------
+# ---------- HTTP VIEWS (for browsers / health checks) ----------
 
-async def status(request):
+
+async def root_status(request):
     """
-    Simple health/status endpoint for browsers.
+    Simple JSON status at "/".
+    Nice for sanity-checking in a browser.
     """
     return JSONResponse(
         {
@@ -81,15 +86,34 @@ async def status(request):
     )
 
 
-# FastMCP provides an SSE ASGI app (with /sse & /messages endpoints)
+async def mcp_status(request):
+    """
+    JSON status at "/mcp" so the MCP client doesn't see 404.
+    """
+    return JSONResponse(
+        {
+            "status": "ok",
+            "kind": "mcp-http-endpoint",
+            "endpoints": {
+                "sse": "/mcp/sse",
+                "messages": "/mcp/messages",
+            },
+        }
+    )
+
+
+# FastMCP provides an ASGI app with /sse and /messages
 sse_starlette_app = mcp.sse_app()
 
-# This is the ASGI app uvicorn will run
+# ---------- MAIN ASGI APP (what uvicorn runs) ----------
+
 app = Starlette(
     routes=[
-        # For human checking in browser:
-        Route("/status", status),
-        # MCP SSE endpoints at /sse and /messages:
-        Mount("/", app=sse_starlette_app),
+        # Human / health endpoints
+        Route("/", root_status),
+        Route("/status", root_status),
+        Route("/mcp", mcp_status),
+        # MCP SSE & message endpoints live under /mcp
+        Mount("/mcp", app=sse_starlette_app),
     ]
 )
