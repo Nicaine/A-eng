@@ -1,3 +1,3 @@
-mcp==1.23.1
+mcp
+fastapi
 uvicorn
-starlette
