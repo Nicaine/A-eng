@@ -17,7 +17,7 @@ mcp = FastMCP("auth-eng-fs")
 def list_files(subpath: str = ".") -> list[str]:
     """
     List files and folders under the MCP root directory.
-    Paths are always relative to the ROOT (/data).
+    Paths are always relative to the ROOT.
     """
     base = (ROOT / subpath).resolve()
 
@@ -61,4 +61,17 @@ def write_file(path: str, content: str) -> str:
     return f"Saved {full.relative_to(ROOT)}"
 
 
-#
+# ----- HTTP / MCP wiring -----
+
+# Build the MCP ASGI app
+mcp_app = mcp.http_app()
+
+# Wrap it in FastAPI so uvicorn can serve it
+app = FastAPI()
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+# MCP endpoint for ChatGPT
+app.mount("/mcp", mcp_app)
