@@ -9,7 +9,8 @@ from mcp.server.fastmcp import FastMCP
 ROOT = (Path(__file__).parent / "data").resolve()
 ROOT.mkdir(parents=True, exist_ok=True)
 
-mcp = FastMCP("auth-eng-fs")
+# stateless_http=True is recommended for remote HTTP servers
+mcp = FastMCP("auth-eng-fs", stateless_http=True)
 
 # ----- Tools -----
 
@@ -63,8 +64,8 @@ def write_file(path: str, content: str) -> str:
 
 # ----- HTTP / MCP wiring -----
 
-# Build the MCP ASGI app
-mcp_app = mcp.http_app()
+# Build the MCP ASGI app using the Streamable HTTP transport
+mcp_app = mcp.streamable_http_app()
 
 # Wrap it in FastAPI so uvicorn can serve it
 app = FastAPI()
