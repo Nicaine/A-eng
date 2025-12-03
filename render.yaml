@@ -1,8 +1,7 @@
 services:
   - type: web
-    name: A-eng
+    name: auth-eng-mcp
     env: python
-    plan: free
+    root: .
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
-    autoDeploy: true
