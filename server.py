@@ -1,37 +1,30 @@
 import os
 from pathlib import Path
 
-from starlette.applications import Starlette
+from fastapi import FastAPI
 from starlette.routing import Mount
+
 from mcp.server.fastmcp import FastMCP
 
-# --------------------------------------------------------------------
-# MCP FILESYSTEM-LIKE SERVER CONFIG
-# --------------------------------------------------------------------
-
-# Root folder where the MCP server is allowed to read/write files.
-# This lives next to server.py and is writable on Render (ephemeral).
+# -------------------------------------------------
+# Config: where files are stored for this MCP server
+# -------------------------------------------------
+# On Render we just keep everything inside the app folder.
 ROOT = (Path(__file__).parent / "data").resolve()
 ROOT.mkdir(parents=True, exist_ok=True)
 
-# Create the MCP server
+# Create the MCP server instance
 mcp = FastMCP("auth-eng-fs")
 
 
-# --------------------------------------------------------------------
-# TOOLS
-# --------------------------------------------------------------------
-
+# -------------------------------------------------
+# MCP tools
+# -------------------------------------------------
 @mcp.tool()
 def list_files(subpath: str = ".") -> list[str]:
     """
     List files and folders under the MCP root directory.
-
-    Args:
-        subpath: Path relative to the root "data" folder (default ".").
-
-    Returns:
-        List of relative paths (strings).
+    Paths are always relative to ROOT (/data inside the app).
     """
     base = (ROOT / subpath).resolve()
 
@@ -42,19 +35,16 @@ def list_files(subpath: str = ".") -> list[str]:
     if not base.exists():
         return []
 
-    return [str(p.relative_to(ROOT)) for p in sorted(base.iterdir())]
+    return [
+        str(p.relative_to(ROOT))
+        for p in sorted(base.iterdir())
+    ]
 
 
 @mcp.tool()
 def read_file(path: str) -> str:
     """
-    Read a UTF-8 text file from the MCP root.
-
-    Args:
-        path: Path relative to the root "data" folder.
-
-    Returns:
-        File contents as a string.
+    Read a text file from the MCP root.
     """
     full = (ROOT / path).resolve()
 
@@ -70,14 +60,7 @@ def read_file(path: str) -> str:
 @mcp.tool()
 def write_file(path: str, content: str) -> str:
     """
-    Write a UTF-8 text file under the MCP root. Overwrites if it exists.
-
-    Args:
-        path: Path relative to the root "data" folder.
-        content: Text to write.
-
-    Returns:
-        Message describing what was saved.
+    Write a text file under the MCP root. Overwrites if it exists.
     """
     full = (ROOT / path).resolve()
 
@@ -90,16 +73,30 @@ def write_file(path: str, content: str) -> str:
     return f"Saved {full.relative_to(ROOT)}"
 
 
-# --------------------------------------------------------------------
-# ASGI APP (SSE MCP SERVER)
-# --------------------------------------------------------------------
+# -------------------------------------------------
+# ASGI app for Render + MCP SSE endpoint
+# -------------------------------------------------
+# FastMCP gives us an ASGI sub-app that exposes:
+#   - /sse       (Server-Sent Events stream)
+#   - /messages  (HTTP POST for client -> server)
+sse_app = mcp.sse_app()
 
-# Starlette app that exposes the MCP SSE endpoints.
-# This will create:
-#   /sse       -> SSE stream (text/event-stream)
-#   /messages  -> HTTP endpoint for MCP messages
-app = Starlette(
-    routes=[
-        Mount("/", app=mcp.sse_app()),
-    ]
-)
+# Main FastAPI app that Render runs with uvicorn
+app = FastAPI()
+
+
+@app.get("/")
+async def root():
+    # Simple health check so hitting the root URL in a browser shows *something*
+    return {
+        "status": "ok",
+        "message": "MCP filesystem server is running",
+        "root_dir": str(ROOT),
+    }
+
+
+# Mount the SSE MCP app at the root.
+# This means:
+#   - https://a-eng.onrender.com/sse       → SSE endpoint
+#   - https://a-eng.onrender.com/messages  → POST endpoint
+app.mount("/", sse_app)
