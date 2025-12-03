@@ -1,44 +1,44 @@
 from pathlib import Path
 
-from fastapi import FastAPI
 from mcp.server.fastmcp import FastMCP
+from starlette.applications import Starlette
+from starlette.routing import Mount, Route
+from starlette.responses import JSONResponse
 
-# ---------- Filesystem root ----------
-# Use a local "data" directory inside the app folder
+# ---------- CONFIG: root folder for your "filesystem" ----------
 ROOT = (Path(__file__).parent / "data").resolve()
 ROOT.mkdir(parents=True, exist_ok=True)
 
-# ---------- MCP setup ----------
+# ---------- MCP SERVER ----------
 mcp = FastMCP("auth-eng-fs")
 
+# ---------- TOOLS ----------
 
-# ---------- Tools ----------
 
 @mcp.tool()
 def list_files(subpath: str = ".") -> list[str]:
     """
     List files and folders under the MCP root directory.
-    Paths are always relative to the ROOT directory.
+
+    Args:
+        subpath: path *relative* to ROOT (default ".")
     """
     base = (ROOT / subpath).resolve()
 
-    # Safety: don't allow escaping the root dir
+    # Safety: don't allow escaping ROOT
     if ROOT not in base.parents and base != ROOT:
         raise ValueError("Path is outside the allowed root directory")
 
     if not base.exists():
         return []
 
-    return [
-        str(p.relative_to(ROOT))
-        for p in sorted(base.iterdir())
-    ]
+    return [str(p.relative_to(ROOT)) for p in sorted(base.iterdir())]
 
 
 @mcp.tool()
 def read_file(path: str) -> str:
     """
-    Read a text file from the MCP root.
+    Read a text file under the MCP root.
     """
     full = (ROOT / path).resolve()
 
@@ -63,25 +63,33 @@ def write_file(path: str, content: str) -> str:
 
     full.parent.mkdir(parents=True, exist_ok=True)
     full.write_text(content, encoding="utf-8")
-
     return f"Saved {full.relative_to(ROOT)}"
 
 
-# ---------- FastAPI / MCP app ----------
+# ---------- HTTP APP FOR RENDER ----------
 
-# FastMCP provides a helper that builds a FastAPI app
-# with the correct /sse endpoint wired up.
-app: FastAPI = mcp.create_fastapi_app()
-
-
-@app.get("/")
-async def health():
+async def status(request):
     """
-    Simple health check so you can hit https://a-eng.onrender.com/
-    in the browser and see that the server is alive.
+    Simple health/status endpoint for browsers.
     """
-    return {
-        "status": "ok",
-        "message": "MCP filesystem server is running",
-        "root_dir": str(ROOT),
-    }
+    return JSONResponse(
+        {
+            "status": "ok",
+            "message": "MCP filesystem server is running",
+            "root_dir": str(ROOT),
+        }
+    )
+
+
+# FastMCP provides an SSE ASGI app (with /sse & /messages endpoints)
+sse_starlette_app = mcp.sse_app()
+
+# This is the ASGI app uvicorn will run
+app = Starlette(
+    routes=[
+        # For human checking in browser:
+        Route("/status", status),
+        # MCP SSE endpoints at /sse and /messages:
+        Mount("/", app=sse_starlette_app),
+    ]
+)
